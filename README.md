@@ -1,7 +1,9 @@
 # AOD_dataviewer
 local python GUI viewer of data collected on Karthala AOD scope
 
-##Function:
+## Function:
+
+
 1, Load data from the default AOD datafolder, such as .../points/points0001
 
 2, Choose the traces corresponding to different Point Of Interest (POIs) from both channels from the drop down menu
