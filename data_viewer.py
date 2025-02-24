@@ -25,6 +25,13 @@ class TDMSViewer:
         self.load_button = ttk.Button(self.left_frame, text="Load Data", command=self.load_data, style='Custom.TButton')
         self.load_button.pack(pady=10)
 
+        # Add folder path label
+        self.folder_label = ttk.Label(self.left_frame, text="Current folder:", wraplength=380)
+        self.folder_label.pack(pady=5)
+        self.path_label = ttk.Label(self.left_frame, text=os.path.dirname(os.path.abspath(__file__)), 
+                                  wraplength=380, font=('Arial', 8))
+        self.path_label.pack(pady=5)
+
         self.zoom_button = ttk.Button(self.left_frame, text="Zoom In", command=self.enable_zoom, style='Custom.TButton')
         self.zoom_button.pack(pady=10)
         
@@ -159,6 +166,9 @@ class TDMSViewer:
                                             initialdir=initial_dir)
         
         if folder_path:
+            # Update folder path label
+            self.path_label.configure(text=folder_path)
+            
             # Set root directory as parent of selected folder
             self.root_directory = os.path.dirname(folder_path)
             
@@ -214,7 +224,7 @@ class TDMSViewer:
         ax = self.fig.add_subplot(6, 1, 1)
         try:
             if self.sync is not None:
-                line, = ax.plot(self.sync_time, self.sync)
+                line, = ax.plot(self.sync_time, self.sync, linewidth=0.5)
                 self.current_plots.append(line)
                 self.original_data.append(self.sync)
                 ax.set_title('Flicker signal')
@@ -229,21 +239,26 @@ class TDMSViewer:
         except (IndexError, AttributeError):
             ax.text(0.5, 0.5, 'No Data', ha='center', va='center')
 
-        # Plot PMT channels based on dropdown selections
+        # Plot PMT channels
+        channel_list = []
         if self.pmt_data:
             channel_list = list(self.pmt_data.keys())
+            # Update dropdown values first
+            for dropdown in self.channel_dropdowns:
+                dropdown['values'] = channel_list
             
         for i in range(5):
             ax = self.fig.add_subplot(6, 1, i+2)
             try:
-                if self.pmt_data is not None:
-                    # Set initial channel selection if not already set
-                    if not self.channel_vars[i].get() and channel_list:
-                        self.channel_vars[i].set(channel_list[min(i, len(channel_list)-1)])
+                if self.pmt_data is not None and channel_list:
+                    # Always set initial channel cycling through the list
+                    channel_idx = i % len(channel_list)
+                    selected_channel = channel_list[channel_idx]
+                    self.channel_vars[i].set(selected_channel)
+                    self.channel_dropdowns[i].set(selected_channel)
                     
-                    selected_channel = self.channel_vars[i].get()
                     data = self.pmt_data[selected_channel]
-                    line, = ax.plot(self.pmt_time, data)
+                    line, = ax.plot(self.pmt_time, data, linewidth=0.5)
                     self.current_plots.append(line)
                     self.original_data.append(data)
                     ax.set_title(selected_channel)
@@ -344,8 +359,8 @@ class TDMSViewer:
             if self.is_smoothed and self.current_window_size:
                 data = self.moving_average(data, self.current_window_size)
             
-            # Update plot
-            line, = ax.plot(self.pmt_time, data)
+            # Update plot with linewidth
+            line, = ax.plot(self.pmt_time, data, linewidth=0.5)
             self.current_plots[subplot_idx + 1] = line
             ax.set_title(selected_channel)
             ax.grid(False)
