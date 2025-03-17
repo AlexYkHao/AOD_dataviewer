@@ -7,6 +7,7 @@ from matplotlib.figure import Figure
 import numpy as np
 from PIL import Image, ImageTk
 import os
+from scipy.signal import savgol_filter  # Import for Savitzky-Golay filter
 
 class TDMSViewer:
     def __init__(self, root):
@@ -42,12 +43,42 @@ class TDMSViewer:
         self.smooth_frame = ttk.Frame(self.left_frame)
         self.smooth_frame.pack(pady=10)
         
+        # Filter type selection
+        self.filter_type_frame = ttk.Frame(self.left_frame)
+        self.filter_type_frame.pack(pady=5)
+        
+        self.filter_type_var = tk.StringVar(value="moving_avg")
+        self.moving_avg_radio = ttk.Radiobutton(self.filter_type_frame, text="Moving Average", 
+                                               variable=self.filter_type_var, value="moving_avg",
+                                               command=self.toggle_filter_options)
+        self.moving_avg_radio.pack(side=tk.LEFT, padx=5)
+        
+        self.savgol_radio = ttk.Radiobutton(self.filter_type_frame, text="Savitzky-Golay", 
+                                          variable=self.filter_type_var, value="savgol",
+                                          command=self.toggle_filter_options)
+        self.savgol_radio.pack(side=tk.LEFT, padx=5)
+        
+        # Window size input (common for both filters)
         self.window_label = ttk.Label(self.smooth_frame, text="Window Size:")
         self.window_label.pack(side=tk.LEFT, padx=5)
         
         self.window_size_var = tk.StringVar(value="5")
         self.window_entry = ttk.Entry(self.smooth_frame, textvariable=self.window_size_var, width=8)
         self.window_entry.pack(side=tk.LEFT, padx=5)
+        
+        # Order input (for Savitzky-Golay only)
+        self.order_frame = ttk.Frame(self.left_frame)
+        self.order_frame.pack(pady=5)
+        
+        self.order_label = ttk.Label(self.order_frame, text="Polynomial Order:")
+        self.order_label.pack(side=tk.LEFT, padx=5)
+        
+        self.order_var = tk.StringVar(value="2")
+        self.order_entry = ttk.Entry(self.order_frame, textvariable=self.order_var, width=8)
+        self.order_entry.pack(side=tk.LEFT, padx=5)
+        
+        # Initially hide the order input
+        self.order_frame.pack_forget()
         
         self.smooth_button = ttk.Button(self.left_frame, text="Smooth", 
                                       command=self.smooth_data, 
@@ -159,6 +190,8 @@ class TDMSViewer:
         # Add smoothing state tracker
         self.is_smoothed = False
         self.current_window_size = None
+        self.current_order = None
+        self.current_filter_type = "moving_avg"
 
     def load_data(self):
         initial_dir = self.root_directory if self.root_directory else "/"
@@ -272,12 +305,27 @@ class TDMSViewer:
         self.fig.tight_layout()
         self.canvas.draw()
 
+    def toggle_filter_options(self):
+        filter_type = self.filter_type_var.get()
+        if filter_type == "savgol":
+            self.order_frame.pack(after=self.smooth_frame, pady=5)
+        else:
+            self.order_frame.pack_forget()
+    
     def smooth_data(self):
         if self.pmt_data is None or not self.current_plots:
             return
 
+        # Get the filter type
+        filter_type = self.filter_type_var.get()
+        self.current_filter_type = filter_type
+
         try:
             window_size = int(self.window_size_var.get())
+            # Ensure window size is odd for Savitzky-Golay
+            if filter_type == "savgol" and window_size % 2 == 0:
+                window_size += 1
+                self.window_size_var.set(str(window_size))
         except ValueError:
             window_size = 5
             self.window_size_var.set("5")
@@ -285,9 +333,25 @@ class TDMSViewer:
         self.is_smoothed = True
         self.current_window_size = window_size
         
+        # Get the polynomial order for Savitzky-Golay
+        if filter_type == "savgol":
+            try:
+                order = int(self.order_var.get())
+                # Ensure order is less than window size
+                if order >= window_size:
+                    order = window_size - 1
+                    self.order_var.set(str(order))
+            except ValueError:
+                order = 2
+                self.order_var.set("2")
+            self.current_order = order
+        
         for i, line in enumerate(self.current_plots):
             data = self.original_data[i]
-            smoothed_data = self.moving_average(data, window_size)
+            if filter_type == "moving_avg":
+                smoothed_data = self.moving_average(data, window_size)
+            else:  # savgol
+                smoothed_data = self.savitzky_golay(data, window_size, order)
             line.set_ydata(smoothed_data)
 
         self.canvas.draw()
@@ -295,6 +359,21 @@ class TDMSViewer:
     @staticmethod
     def moving_average(data, window_size):
         return np.convolve(data, np.ones(window_size)/window_size, mode='same')
+    
+    @staticmethod
+    def savitzky_golay(data, window_size, order):
+        try:
+            # Ensure window_size is odd and order is less than window_size
+            if window_size % 2 == 0:
+                window_size += 1
+            if order >= window_size:
+                order = window_size - 1
+                
+            return savgol_filter(data, window_size, order)
+        except Exception as e:
+            print(f"Error applying Savitzky-Golay filter: {e}")
+            # Fall back to moving average if there's an error
+            return np.convolve(data, np.ones(window_size)/window_size, mode='same')
 
     @staticmethod
     def get_analog_data(analog_file):
@@ -315,14 +394,14 @@ class TDMSViewer:
             for channel in green_group.channels():
                 channel_name = channel.name
                 if 'time' in channel_name:
-                    channel_time = channel[:]
+                    channel_time = channel[:].copy()
                 else:
                     channel_dic[channel_name + '_green'] = channel[:]
                     if green_sum is None:
-                        green_sum = channel[:]
+                        green_sum = channel[:].copy()
                     else:
-                        green_sum += channel[:]
-            channel_dic['green_sum'] = green_sum
+                        green_sum += channel[:].copy()
+            channel_dic['green_sum'] = green_sum.copy()
             if 'PMT2' in tdms_file:
                 red_group = tdms_file['PMT2']
                 red_sum = None
@@ -331,10 +410,10 @@ class TDMSViewer:
                     if 'time' not in channel_name:
                         channel_dic[channel_name+ '_red'] = channel[:]
                         if red_sum is None:
-                            red_sum = channel[:]
+                            red_sum = channel[:].copy()
                         else:
-                            red_sum += channel[:]
-                channel_dic['red_sum'] = red_sum
+                            red_sum += channel[:].copy()
+                channel_dic['red_sum'] = red_sum.copy()
         acquisision_rate = 1000/np.gradient(channel_time).mean()
         channel_time = np.arange(0, len(list(channel_dic.values())[0]))/acquisision_rate
         return channel_dic, channel_time
@@ -353,11 +432,14 @@ class TDMSViewer:
             data = self.pmt_data[selected_channel]
             
             # Update original data for smoothing
-            self.original_data[subplot_idx + 1] = data
+            self.original_data[subplot_idx + 1] = data.copy()
             
             # Apply smoothing if active
-            if self.is_smoothed and self.current_window_size:
-                data = self.moving_average(data, self.current_window_size)
+            if self.is_smoothed:
+                if self.current_filter_type == "moving_avg":
+                    data = self.moving_average(data, self.current_window_size)
+                else:  # savgol
+                    data = self.savitzky_golay(data, self.current_window_size, self.current_order)
             
             # Update plot with linewidth
             line, = ax.plot(self.pmt_time, data, linewidth=0.5)
