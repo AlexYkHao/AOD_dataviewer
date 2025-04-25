@@ -205,6 +205,15 @@ class TDMSViewer:
             # Set root directory as parent of selected folder
             self.root_directory = os.path.dirname(folder_path)
             
+            # Reset smoothing state
+            self.is_smoothed = False
+            self.current_window_size = None
+            self.current_order = None
+            self.current_filter_type = "moving_avg"
+            
+            # Reset zoom window
+            self.shown_time_window = None
+            
             # Look for specific TDMS files            
             for f in os.listdir(folder_path):
                 if f.endswith('AnalogIN.tdms'):
